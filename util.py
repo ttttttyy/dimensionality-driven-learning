@@ -1,245 +1,147 @@
-from __future__ import absolute_import
-from __future__ import print_function
-
+import logging
 import os
-import multiprocessing as mp
-from subprocess import call
-import warnings
+import torch
 import numpy as np
-from numpy.testing import assert_array_almost_equal
-from sklearn.preprocessing import MinMaxScaler
-import keras.backend as K
-from scipy.spatial.distance import pdist, cdist, squareform
-from keras.callbacks import ModelCheckpoint, Callback
-from keras.callbacks import LearningRateScheduler
-import tensorflow as tf
+import torch.nn.functional as F
+from lid import lid_mle
+from lass import lass
 
-# Set random seed
-np.random.seed(123)
+class AverageMeter(object):
+    def __init__(self):
+        self.reset()
 
+    def reset(self):
+        self.avg = 0
+        self.sum = 0
+        self.cnt = 0
 
-def lid(logits, k=20):
-    """
-    Calculate LID for a minibatch of training samples based on the outputs of the network.
-
-    :param logits:
-    :param k: 
-    :return: 
-    """
-    epsilon = 1e-12
-    batch_size = tf.shape(logits)[0]
-    # n_samples = logits.get_shape().as_list()
-    # calculate pairwise distance
-    r = tf.reduce_sum(logits * logits, 1)
-    # turn r into column vector
-    r1 = tf.reshape(r, [-1, 1])
-    D = r1 - 2 * tf.matmul(logits, tf.transpose(logits)) + tf.transpose(r1) + \
-        tf.ones([batch_size, batch_size])
-
-    # find the k nearest neighbor
-    D1 = -tf.sqrt(D)
-    D2, _ = tf.nn.top_k(D1, k=k, sorted=True)
-    D3 = -D2[:, 1:]  # skip the x-to-x distance 0 by using [,1:]
-
-    m = tf.transpose(tf.multiply(tf.transpose(D3), 1.0 / D3[:, -1]))
-    v_log = tf.reduce_sum(tf.log(m + epsilon), axis=1)  # to avoid nan
-    lids = -k / v_log
-    return lids
+    def update(self, val, n=1):
+        self.val = val
+        self.sum += val * n
+        self.cnt += n
+        self.avg = self.sum / self.cnt
 
 
-def mle_single(data, x, k):
-    """
-    lid of a single query point x.
-    numpy implementation.
+def accuracy(output, target, topk=(1,)):
+    maxk = max(topk)
+    batch_size = target.size(0)
 
-    :param data: 
-    :param x: 
-    :param k: 
-    :return: 
-    """
-    data = np.asarray(data, dtype=np.float32)
-    x = np.asarray(x, dtype=np.float32)
-    if x.ndim == 1:
-        x = x.reshape((-1, x.shape[0]))
-    # dim = x.shape[1]
+    _, pred = output.topk(maxk, 1, True, True)
+    pred = pred.t()
+    correct = pred.eq(target.view(1, -1).expand_as(pred))
 
-    k = min(k, len(data) - 1)
-    f = lambda v: - k / np.sum(np.log(v / v[-1] + 1e-8))
-    a = cdist(x, data)
-    a = np.apply_along_axis(np.sort, axis=1, arr=a)[:, 1:k + 1]
-    a = np.apply_along_axis(f, axis=1, arr=a)
-    return a[0]
+    res = []
+    for k in topk:
+        correct_k = correct[:k].contiguous().view(-1).float().sum(0)
+        res.append(correct_k.mul_(1.0/batch_size))
+    return res
 
 
-def mle_batch(data, batch, k):
-    """
-    lid of a batch of query points X.
-    numpy implementation.
-
-    :param data: 
-    :param batch: 
-    :param k: 
-    :return: 
-    """
-    data = np.asarray(data, dtype=np.float32)
-    batch = np.asarray(batch, dtype=np.float32)
-
-    k = min(k, len(data) - 1)
-    f = lambda v: - k / np.sum(np.log(v / v[-1] + 1e-8))
-    a = cdist(batch, data)
-    a = np.apply_along_axis(np.sort, axis=1, arr=a)[:, 1:k + 1]
-    a = np.apply_along_axis(f, axis=1, arr=a)
-    return a
+def log_display(epoch, global_step, time_elapse, **kwargs):
+    display = 'epoch=' + str(epoch) + \
+              '\tglobal_step=' + str(global_step)
+    for key, value in kwargs.items():
+        display += '\t' + str(key) + '=%.5f' % value
+    display += '\ttime=%.2fit/s' % (1. / time_elapse)
+    return display
 
 
-def other_class(n_classes, current_class):
-    """
-    Returns a list of class indices excluding the class indexed by class_ind
-    :param nb_classes: number of classes in the task
-    :param class_ind: the class index to be omitted
-    :return: one random class that != class_ind
-    """
-    if current_class < 0 or current_class >= n_classes:
-        error_str = "class_ind must be within the range (0, nb_classes - 1)"
-        raise ValueError(error_str)
-
-    other_class_list = list(range(n_classes))
-    other_class_list.remove(current_class)
-    other_class = np.random.choice(other_class_list)
-    return other_class
+def chunks(l, n):
+    """Yield successive n-sized chunks from l."""
+    for i in range(0, len(l), n):
+        yield l[i:i + n]
 
 
-def get_lids_random_batch(model, X, k=20, batch_size=128):
+def setup_logger(name, log_file, level=logging.INFO):
+    """To setup as many loggers as you want"""
+    formatter = logging.Formatter('%(asctime)s %(message)s')
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(formatter)
+    file_handler = logging.FileHandler(log_file)
+    file_handler.setFormatter(formatter)
+    logger = logging.getLogger(name)
+    logger.setLevel(level)
+    logger.addHandler(file_handler)
+    logger.addHandler(console_handler)
+    return logger
+
+
+def build_dirs(path):
+    if not os.path.exists(path):
+        os.makedirs(path)
+    return
+
+
+def save_model(filename, model, optimizer, scheduler, epoch, **kwargs):
+    # Torch Save State Dict
+    state = {
+        'epoch': epoch+1,
+        'model': model.state_dict() if model is not None else None,
+        'optimizer': optimizer.state_dict() if optimizer is not None else None,
+        'scheduler': scheduler.state_dict() if scheduler is not None else None,
+    }
+    for key, value in kwargs.items():
+        state[key] = value
+    torch.save(state, filename+'.pth')
+    return
+
+
+def load_model(filename, model, optimizer, scheduler, **kwargs):
+    checkpoints = torch.load(filename + '.pth')
+    if model is not None and checkpoints['model'] is not None:
+        model.load_state_dict(checkpoints['model'])
+    if optimizer is not None and checkpoints['optimizer'] is not None:
+        optimizer.load_state_dict(checkpoints['optimizer'])
+    if scheduler is not None and checkpoints['scheduler'] is not None:
+        scheduler.load_state_dict(checkpoints['scheduler'])
+    print("%s Loaded!" % (filename))
+    return checkpoints
+
+
+def count_parameters_in_MB(model):
+    return sum(np.prod(v.size()) for name, v in model.named_parameters() if "auxiliary_head" not in name)/1e6
+
+
+def get_lids_random_batch(model, data_loader, device, k=20, batch_size=128, batch_num=10):
     """
     Get the local intrinsic dimensionality of each Xi in X_adv
     estimated by k close neighbours in the random batch it lies in.
-    :param model: if None: lid of raw inputs, otherwise LID of deep representations 
-    :param X: normal images 
-    :param k: the number of nearest neighbours for LID estimation  
-    :param batch_size: default 100
-    :return: lids: LID of normal images of shape (num_examples, lid_dim)
-            lids_adv: LID of advs images of shape (num_examples, lid_dim)
     """
-    if model is None:
-        lids = []
-        n_batches = int(np.ceil(X.shape[0] / float(batch_size)))
-        for i_batch in range(n_batches):
-            start = i_batch * batch_size
-            end = np.minimum(len(X), (i_batch + 1) * batch_size)
-            X_batch = X[start:end].reshape((end - start, -1))
-
-            # Maximum likelihood estimation of local intrinsic dimensionality (LID)
-            lid_batch = mle_batch(X_batch, X_batch, k=k)
-            lids.extend(lid_batch)
-
-        lids = np.asarray(lids, dtype=np.float32)
-        return lids
-
-    # get deep representations
-    funcs = [K.function([model.layers[0].input, K.learning_phase()], [out])
-             for out in [model.get_layer("lid").output]]
-    lid_dim = len(funcs)
-
-    #     print("Number of layers to estimate: ", lid_dim)
-
-    def estimate(i_batch):
-        start = i_batch * batch_size
-        end = np.minimum(len(X), (i_batch + 1) * batch_size)
-        n_feed = end - start
-        lid_batch = np.zeros(shape=(n_feed, lid_dim))
-        for i, func in enumerate(funcs):
-            X_act = func([X[start:end], 0])[0]
-            X_act = np.asarray(X_act, dtype=np.float32).reshape((n_feed, -1))
-
-            # Maximum likelihood estimation of local intrinsic dimensionality (LID)
-            lid_batch[:, i] = mle_batch(X_act, X_act, k=k)
-
-        return lid_batch
 
     lids = []
-    n_batches = int(np.ceil(X.shape[0] / float(batch_size)))
-    for i_batch in range(n_batches):
-        lid_batch = estimate(i_batch)
-        lids.extend(lid_batch)
+    model.eval()
+    
+    def estimate(images):
+        images = images.to(device, non_blocking = True)
+        #get the output of the second-to-last layer of the network
+        with torch.no_grad():
+            _, X_act = model(images)
+            
+        lid_batch = lid_mle(X_act, X_act, k=k)
+        return lid_batch
 
-    lids = np.asarray(lids, dtype=np.float32)
+    
+    for j, (images,labels) in enumerate(data_loader['train_dataset']):
+        if j < batch_num:
+            lid_batch = estimate(images)
+            lids.extend(lid_batch)
 
+    lids = torch.stack(lids, dim=0).type(torch.float32)
     return lids
 
-
-def get_lr_scheduler(dataset):
-    """
-    customerized learning rate decay for training with clean labels.
-     For efficientcy purpose we use large lr for noisy data.
-    :param dataset: 
-    :param noise_ratio:
-    :return: 
-    """
-    if dataset in ['mnist', 'svhn']:
-        def scheduler(epoch):
-            if epoch > 40:
-                return 0.001
-            elif epoch > 20:
-                return 0.01
-            else:
-                return 0.1
-
-        return LearningRateScheduler(scheduler)
-    elif dataset in ['cifar-10']:
-        def scheduler(epoch):
-            if epoch > 80:
-                return 0.001
-            elif epoch > 40:
-                return 0.01
-            else:
-                return 0.1
-
-        return LearningRateScheduler(scheduler)
-    elif dataset in ['cifar-100']:
-        def scheduler(epoch):
-            if epoch > 120:
-                return 0.001
-            elif epoch > 80:
-                return 0.01
-            else:
-                return 0.1
-
-        return LearningRateScheduler(scheduler)
-
-
-def uniform_noise_model_P(num_classes, noise):
-    """ The noise matrix flips any class to any other with probability
-    noise / (num_classes - 1).
-    """
-
-    assert (noise >= 0.) and (noise <= 1.)
-
-    P = noise / (num_classes - 1) * np.ones((num_classes, num_classes))
-    np.fill_diagonal(P, (1 - noise) * np.ones(num_classes))
-
-    assert_array_almost_equal(P.sum(axis=1), 1, 1)
-    return P
-
-
-def get_deep_representations(model, X, batch_size=128):
-    """
-    Get the deep representations before logits.
-    :param model:
-    :param X:
-    :param batch_size:
-    :return:
-    """
-    # last hidden layer is always at index -4
-    output_dim = model.layers[-3].output.shape[-1].value
-    get_encoding = K.function(
-        [model.layers[0].input, K.learning_phase()],
-        [model.layers[-3].output]
-    )
-
-    n_batches = int(np.ceil(X.shape[0] / float(batch_size)))
-    output = np.zeros(shape=(len(X), output_dim))
-    for i in range(n_batches):
-        output[i * batch_size:(i + 1) * batch_size] = \
-            get_encoding([X[i * batch_size:(i + 1) * batch_size], 0])[0]
-
-    return output
+def get_csr_random_batch(model, data_loader, device, batch_size=128, batch_num=4):
+    model.eval()
+    adv_ind_sum = 0
+    for j, (images,labels) in enumerate(data_loader['test_dataset']):
+        if j < batch_num:
+            images = images.to(device, non_blocking = True)
+            scale_factor = 255. / (torch.max(images) - torch.min(images))
+            #scale_factor = 1
+            csr_model = lass(model, device, a=0.25 / scale_factor, b=0.2 / scale_factor, r=0.3 / scale_factor, iter_max=100)
+            X_adv, adv_ind = csr_model.find(images)
+            adv_ind_sum += torch.sum(adv_ind)
+            
+    samples_num = batch_num * batch_size
+    csr = adv_ind_sum * 1. / samples_num
+    return csr
+            

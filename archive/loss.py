@@ -1,8 +1,6 @@
 import torch
 import torch.nn.functional as F
 import numpy as np
-import mlconfig
-mlconfig.register(torch.nn.CrossEntropyLoss)
 
 if torch.cuda.is_available():
     torch.backends.cudnn.benchmark = True
@@ -14,7 +12,6 @@ else:
     device = torch.device('cpu')
 
 
-@mlconfig.register
 class SCELoss(torch.nn.Module):
     def __init__(self, alpha, beta, num_classes=10):
         super(SCELoss, self).__init__()
@@ -40,7 +37,6 @@ class SCELoss(torch.nn.Module):
         return loss
 
 
-@mlconfig.register
 class ReverseCrossEntropy(torch.nn.Module):
     def __init__(self, num_classes, scale=1.0):
         super(ReverseCrossEntropy, self).__init__()
@@ -55,9 +51,11 @@ class ReverseCrossEntropy(torch.nn.Module):
         label_one_hot = torch.clamp(label_one_hot, min=1e-4, max=1.0)
         rce = (-1*torch.sum(pred * torch.log(label_one_hot), dim=1))
         return self.scale * rce.mean()
+        normalizor = 1 / 4 * (self.num_classes - 1)
+        rce = (-1*torch.sum(pred * torch.log(label_one_hot), dim=1))
+        return self.scale * normalizor * rce.mean()
 
 
-@mlconfig.register
 class NormalizedReverseCrossEntropy(torch.nn.Module):
     def __init__(self, num_classes, scale=1.0):
         super(NormalizedReverseCrossEntropy, self).__init__()
@@ -75,7 +73,6 @@ class NormalizedReverseCrossEntropy(torch.nn.Module):
         return self.scale * normalizor * rce.mean()
 
 
-@mlconfig.register
 class NormalizedCrossEntropy(torch.nn.Module):
     def __init__(self, num_classes, scale=1.0):
         super(NormalizedCrossEntropy, self).__init__()
@@ -90,7 +87,6 @@ class NormalizedCrossEntropy(torch.nn.Module):
         return self.scale * nce.mean()
 
 
-@mlconfig.register
 class GeneralizedCrossEntropy(torch.nn.Module):
     def __init__(self, num_classes, q=0.7):
         super(GeneralizedCrossEntropy, self).__init__()
@@ -106,7 +102,6 @@ class GeneralizedCrossEntropy(torch.nn.Module):
         return gce.mean()
 
 
-@mlconfig.register
 class NormalizedGeneralizedCrossEntropy(torch.nn.Module):
     def __init__(self, num_classes, scale=1.0, q=0.7):
         super(NormalizedGeneralizedCrossEntropy, self).__init__()
@@ -125,7 +120,6 @@ class NormalizedGeneralizedCrossEntropy(torch.nn.Module):
         return self.scale * ngce.mean()
 
 
-@mlconfig.register
 class MeanAbsoluteError(torch.nn.Module):
     def __init__(self, num_classes, scale=1.0):
         super(MeanAbsoluteError, self).__init__()
@@ -138,16 +132,9 @@ class MeanAbsoluteError(torch.nn.Module):
         pred = F.softmax(pred, dim=1)
         label_one_hot = torch.nn.functional.one_hot(labels, self.num_classes).float().to(self.device)
         mae = 1. - torch.sum(label_one_hot * pred, dim=1)
-        # Note: Reduced MAE
-        # Original: torch.abs(pred - label_one_hot).sum(dim=1)
-        # $MAE = \sum_{k=1}^{K} |\bm{p}(k|\bm{x}) - \bm{q}(k|\bm{x})|$
-        # $MAE = \sum_{k=1}^{K}\bm{p}(k|\bm{x}) - p(y|\bm{x}) + (1 - p(y|\bm{x}))$
-        # $MAE = 2 - 2p(y|\bm{x})$
-        #
         return self.scale * mae.mean()
 
 
-@mlconfig.register
 class NormalizedMeanAbsoluteError(torch.nn.Module):
     def __init__(self, num_classes, scale=1.0):
         super(NormalizedMeanAbsoluteError, self).__init__()
@@ -164,7 +151,6 @@ class NormalizedMeanAbsoluteError(torch.nn.Module):
         return self.scale * normalizor * mae.mean()
 
 
-@mlconfig.register
 class NCEandRCE(torch.nn.Module):
     def __init__(self, alpha, beta, num_classes):
         super(NCEandRCE, self).__init__()
@@ -176,7 +162,6 @@ class NCEandRCE(torch.nn.Module):
         return self.nce(pred, labels) + self.rce(pred, labels)
 
 
-@mlconfig.register
 class NCEandMAE(torch.nn.Module):
     def __init__(self, alpha, beta, num_classes):
         super(NCEandMAE, self).__init__()
@@ -188,7 +173,6 @@ class NCEandMAE(torch.nn.Module):
         return self.nce(pred, labels) + self.mae(pred, labels)
 
 
-@mlconfig.register
 class GCEandMAE(torch.nn.Module):
     def __init__(self, alpha, beta, num_classes, q=0.7):
         super(GCEandMAE, self).__init__()
@@ -200,7 +184,6 @@ class GCEandMAE(torch.nn.Module):
         return self.gce(pred, labels) + self.mae(pred, labels)
 
 
-@mlconfig.register
 class GCEandRCE(torch.nn.Module):
     def __init__(self, alpha, beta, num_classes, q=0.7):
         super(GCEandRCE, self).__init__()
@@ -212,7 +195,6 @@ class GCEandRCE(torch.nn.Module):
         return self.gce(pred, labels) + self.rce(pred, labels)
 
 
-@mlconfig.register
 class GCEandNCE(torch.nn.Module):
     def __init__(self, alpha, beta, num_classes, q=0.7):
         super(GCEandNCE, self).__init__()
@@ -224,7 +206,6 @@ class GCEandNCE(torch.nn.Module):
         return self.gce(pred, labels) + self.nce(pred, labels)
 
 
-@mlconfig.register
 class NGCEandNCE(torch.nn.Module):
     def __init__(self, alpha, beta, num_classes, q=0.7):
         super(NGCEandNCE, self).__init__()
@@ -236,7 +217,6 @@ class NGCEandNCE(torch.nn.Module):
         return self.ngce(pred, labels) + self.nce(pred, labels)
 
 
-@mlconfig.register
 class NGCEandMAE(torch.nn.Module):
     def __init__(self, alpha, beta, num_classes, q=0.7):
         super(NGCEandMAE, self).__init__()
@@ -248,7 +228,6 @@ class NGCEandMAE(torch.nn.Module):
         return self.ngce(pred, labels) + self.mae(pred, labels)
 
 
-@mlconfig.register
 class NGCEandRCE(torch.nn.Module):
     def __init__(self, alpha, beta, num_classes, q=0.7):
         super(NGCEandRCE, self).__init__()
@@ -260,7 +239,6 @@ class NGCEandRCE(torch.nn.Module):
         return self.ngce(pred, labels) + self.rce(pred, labels)
 
 
-@mlconfig.register
 class MAEandRCE(torch.nn.Module):
     def __init__(self, alpha, beta, num_classes):
         super(MAEandRCE, self).__init__()
@@ -272,7 +250,6 @@ class MAEandRCE(torch.nn.Module):
         return self.mae(pred, labels) + self.rce(pred, labels)
 
 
-@mlconfig.register
 class NLNL(torch.nn.Module):
     def __init__(self, train_loader, num_classes, ln_neg=1):
         super(NLNL, self).__init__()
@@ -309,7 +286,6 @@ class NLNL(torch.nn.Module):
         return loss
 
 
-@mlconfig.register
 class FocalLoss(torch.nn.Module):
     '''
         https://github.com/clcarwin/focal_loss_pytorch/blob/master/focalloss.py
@@ -350,7 +326,6 @@ class FocalLoss(torch.nn.Module):
             return loss.sum()
 
 
-@mlconfig.register
 class NormalizedFocalLoss(torch.nn.Module):
     def __init__(self, scale=1.0, gamma=0, num_classes=10, alpha=None, size_average=True):
         super(NormalizedFocalLoss, self).__init__()
@@ -375,7 +350,6 @@ class NormalizedFocalLoss(torch.nn.Module):
             return loss.sum()
 
 
-@mlconfig.register
 class NFLandNCE(torch.nn.Module):
     def __init__(self, alpha, beta, num_classes, gamma=0.5):
         super(NFLandNCE, self).__init__()
@@ -387,7 +361,6 @@ class NFLandNCE(torch.nn.Module):
         return self.nfl(pred, labels) + self.nce(pred, labels)
 
 
-@mlconfig.register
 class NFLandMAE(torch.nn.Module):
     def __init__(self, alpha, beta, num_classes, gamma=0.5):
         super(NFLandMAE, self).__init__()
@@ -399,7 +372,6 @@ class NFLandMAE(torch.nn.Module):
         return self.nfl(pred, labels) + self.mae(pred, labels)
 
 
-@mlconfig.register
 class NFLandRCE(torch.nn.Module):
     def __init__(self, alpha, beta, num_classes, gamma=0.5):
         super(NFLandRCE, self).__init__()
@@ -411,7 +383,6 @@ class NFLandRCE(torch.nn.Module):
         return self.nfl(pred, labels) + self.rce(pred, labels)
 
 
-@mlconfig.register
 class DMILoss(torch.nn.Module):
     def __init__(self, num_classes):
         super(DMILoss, self).__init__()
@@ -426,7 +397,7 @@ class DMILoss(torch.nn.Module):
         mat = y_onehot @ outputs
         return -1.0 * torch.log(torch.abs(torch.det(mat.float())) + 0.001)
 
-@mlconfig.register
+
 class BootSoftLoss(torch.nn.Module):
     def __init__(self, num_classes, beta=0.95):
         super(BootSoftLoss, self).__init__()
@@ -442,7 +413,7 @@ class BootSoftLoss(torch.nn.Module):
         bsl = -torch.sum((self.beta * label_one_hot + (1. - self.beta) * pred) * torch.log(pred), dim=1)
         return bsl.mean()
     
-@mlconfig.register
+    
 class BootHardLoss(torch.nn.Module):
     def __init__(self, num_classes, beta=0.8):
         super(BootSoftLoss, self).__init__()
@@ -459,7 +430,7 @@ class BootHardLoss(torch.nn.Module):
         bhl = -torch.sum((self.beta * label_one_hot + (1. - self.beta) * pred_one_hot) * torch.log(pred), dim=1)
         return bhl.mean()
     
-@mlconfig.register
+    
 class ForwardLoss(torch.nn.Module):
     def __init__(self, num_classes, noise_rate):
         super(ForwardLoss, self).__init__()
@@ -476,11 +447,9 @@ class ForwardLoss(torch.nn.Module):
         P = self.noise_rate / (self.num_classes - 1) * torch.ones((self.num_classes, self.num_classes))
         P.diagonal().fill_(1-self.noise_rate)
         P = P.to(self.device)
-        loss=-torch.sum(label_one_hot * torch.log(torch.matmul(pred, P)), dim=-1)
+        loss = -torch.sum(label_one_hot * torch.log(torch.matmul(pred, P)), dim=-1)
         return loss.mean()
     
-    
-@mlconfig.register
 class BackwardLoss(torch.nn.Module):
     def __init__(self, num_classes, noise_rate):
         super(BackwardLoss, self).__init__()
@@ -501,7 +470,7 @@ class BackwardLoss(torch.nn.Module):
         loss=-torch.sum((torch.matmul(label_one_hot, P_inv)) * torch.log(pred), dim=-1)
         return loss.mean()
     
-@mlconfig.register
+    
 class LIDPacedLoss(torch.nn.Module):
     def __init__(self, num_classes, alpha, beta1, beta2):
         super(LIDPacedLoss, self).__init__()

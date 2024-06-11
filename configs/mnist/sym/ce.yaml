@@ -1,0 +1,35 @@
+epochs: 1000
+grad_bound: 5.0
+log_frequency: 200
+
+dataset:
+  name: DatasetGenerator
+  asym: False
+  train_batch_size: 128
+  eval_batch_size: 512
+  data_path: ../datasets
+  dataset_type: 'MNIST'
+  num_of_workers: 8
+
+model:
+  name: ToyModel
+  type: $dataset.dataset_type
+
+optimizer:
+  name: SGD
+  lr: 0.1
+  #weight_decay: 1.e-4
+  momentum: 0.9
+  #nesterov: True
+
+#scheduler:
+  #name: CosineAnnealingLR
+  #T_max: $epochs
+  #eta_min: 0.001
+scheduler:
+  name: StepLR
+  step_size: 100
+  gamma: 0.7
+
+criterion:
+  name: CrossEntropyLoss

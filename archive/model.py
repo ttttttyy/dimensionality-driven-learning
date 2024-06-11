@@ -1,15 +1,5 @@
-import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import mlconfig
-import torchvision
-mlconfig.register(torchvision.models.resnet50)
-mlconfig.register(torch.optim.SGD)
-mlconfig.register(torch.optim.Adam)
-mlconfig.register(torch.optim.lr_scheduler.MultiStepLR)
-mlconfig.register(torch.optim.lr_scheduler.CosineAnnealingLR)
-mlconfig.register(torch.optim.lr_scheduler.StepLR)
-mlconfig.register(torch.optim.lr_scheduler.ExponentialLR)
 
 
 class ConvBrunch(nn.Module):
@@ -25,13 +15,11 @@ class ConvBrunch(nn.Module):
         return self.out_conv(x)
 
 
-@mlconfig.register
-class ToyModel(nn.Module):
-    def __init__(self, type='CIFAR10'):
-        super(ToyModel, self).__init__()
+class SCEModel(nn.Module):
+    def __init__(self, type='cifar10'):
+        super(SCEModel, self).__init__()
         self.type = type
-        """
-        if type == 'CIFAR10':
+        if type == 'cifar10':
             self.block1 = nn.Sequential(
                 ConvBrunch(3, 64, 3),
                 ConvBrunch(64, 64, 3),
@@ -44,80 +32,27 @@ class ToyModel(nn.Module):
                 ConvBrunch(128, 196, 3),
                 ConvBrunch(196, 196, 3),
                 nn.MaxPool2d(kernel_size=2, stride=2))
-            # self.global_avg_pool = nn.AdaptiveAvgPool2d(1)
+            # self.global_avg_pool = nn.AdaptiveAvgPool2d((1, 1))
             self.fc1 = nn.Sequential(
-                nn.Linear(4*4*196, 256),
+                nn.Linear(3136, 256),
                 nn.BatchNorm1d(256),
                 nn.ReLU())
             self.fc2 = nn.Linear(256, 10)
-            self.fc_size = 4*4*196
-            """
-        if type == 'CIFAR10':
-            self.block1 = nn.Sequential(
-                ConvBrunch(3, 32, 3),
-                ConvBrunch(32, 32, 3),
-                nn.MaxPool2d(kernel_size=2, stride=2))
-            self.block2 = nn.Sequential(
-                ConvBrunch(32, 64, 3),
-                ConvBrunch(64, 64, 3),
-                nn.MaxPool2d(kernel_size=2, stride=2))
-            self.block3 = nn.Sequential(
-                ConvBrunch(64, 128, 3),
-                ConvBrunch(128, 128, 3),
-                nn.MaxPool2d(kernel_size=2, stride=2))
-            # self.global_avg_pool = nn.AdaptiveAvgPool2d(1)
-            self.fc1 = nn.Sequential(
-                nn.Flatten(),
-                nn.Dropout(0.5),
-                nn.Linear(4*4*128, 1024),
-                nn.ReLU(),
-                nn.BatchNorm1d(1024),
-                nn.Dropout(0.5),
-                nn.Linear(1024,512),
-                nn.ReLU(),
-                nn.BatchNorm1d(512)
-            )
-            self.fc2 = nn.Sequential(
-                nn.Dropout(0.5),
-                nn.Linear(512,10)
-            )
-            self.fc_size = 4*4*128
-        
-        
-        elif type == 'MNIST':
-            self.block1 = nn.Sequential(
-                ConvBrunch(1, 64, 3),
-            )
-            self.block2 = nn.Sequential(
-                ConvBrunch(64, 64, 3),
-                nn.MaxPool2d(kernel_size=2, stride=2),
-                nn.Dropout(0.5))
-            # self.global_avg_pool = nn.AdaptiveAvgPool2d(1)
-            self.fc1 = nn.Sequential(
-                nn.Flatten(),
-                nn.Linear(64*14*14, 128),
-                nn.BatchNorm1d(128),
-                nn.ReLU(),
-                nn.Dropout(0.5))
-            self.fc2 = nn.Linear(128, 10)
-            self.fc_size = 64*14*14
-        
-        """
-        elif type == 'MNIST':
+            self.fc_size = 3136
+        elif type == 'mnist':
             self.block1 = nn.Sequential(
                 ConvBrunch(1, 32, 3),
                 nn.MaxPool2d(kernel_size=2, stride=2))
             self.block2 = nn.Sequential(
                 ConvBrunch(32, 64, 3),
                 nn.MaxPool2d(kernel_size=2, stride=2))
-            # self.global_avg_pool = nn.AdaptiveAvgPool2d(1)
+            # self.global_avg_pool = nn.AdaptiveAvgPool2d((1, 1))
             self.fc1 = nn.Sequential(
                 nn.Linear(64*7*7, 128),
                 nn.BatchNorm1d(128),
                 nn.ReLU())
             self.fc2 = nn.Linear(128, 10)
             self.fc_size = 64*7*7
-        """
         self._reset_prams()
 
     def _reset_prams(self):
@@ -131,13 +66,12 @@ class ToyModel(nn.Module):
     def forward(self, x):
         x = self.block1(x)
         x = self.block2(x)
-        x = self.block3(x) if self.type == 'CIFAR10' else x
+        x = self.block3(x) if self.type == 'cifar10' else x
         # x = self.global_avg_pool(x)
-        # x = x.view(x.shape[0], -1)
         x = x.view(-1, self.fc_size)
-        x_fc1 = self.fc1(x)
-        x = self.fc2(x_fc1)
-        return x, x_fc1
+        x = self.fc1(x)
+        x = self.fc2(x)
+        return x
 
 
 '''ResNet in PyTorch.
@@ -243,26 +177,21 @@ class ResNet(nn.Module):
         return
 
 
-@mlconfig.register
 def ResNet18(num_classes=10):
     return ResNet(BasicBlock, [2, 2, 2, 2], num_classes=num_classes)
 
 
-@mlconfig.register
 def ResNet34(num_classes=10):
     return ResNet(BasicBlock, [3, 4, 6, 3], num_classes=num_classes)
 
 
-@mlconfig.register
 def ResNet50(num_classes=10):
     return ResNet(Bottleneck, [3, 4, 6, 3], num_classes=num_classes)
 
 
-@mlconfig.register
 def ResNet101(num_classes=10):
     return ResNet(Bottleneck, [3, 4, 23, 3], num_classes=num_classes)
 
 
-@mlconfig.register
 def ResNet152(num_classes=10):
     return ResNet(Bottleneck, [3, 8, 36, 3], num_classes=num_classes)

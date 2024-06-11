@@ -1,55 +1,68 @@
-### Code for ICML 2018 paper "Dimensionality-Driven Learning with Noisy Labels".
+# Normalized Loss Functions - Active Passive Losses
+Code for ICML2020 Paper ["Normalized Loss Functions for Deep Learning with Noisy Labels"](https://arxiv.org/abs/2006.13554)
 
-#### - Update (2018.07): Issues fixed on CIFAR-10. 
-#### - Update (2019.10): Start training with symmetric cross entropy (SCE) loss (replacing cross entropy).
-
-The Symmetric Cross Entropy (SCE) was demonstrated can improve several exisiting methods including the D2L:
-ICCV2019 "Symmetric Cross Entropy for Robust Learning with Noisy Labels"
-https://arxiv.org/abs/1908.06112
-https://github.com/YisenWang/symmetric_cross_entropy_for_noisy_labels
-
-#### - Update (2020.03): convergence issue on CIFAR-100 when using SCE loss: learning rate, data augmentation and parameters for SCE. 
-
-
-### 1. Train DNN models using command line:
-
-An example: <br/>
-
-```
-python train_model.py -d mnist -m d2l -e 50 -b 128 -r 40 
+## Requirements
+```console
+Python >= 3.6, PyTorch >= 1.3.1, torchvision >= 0.4.1, mlconfig
 ```
 
-`-d`: dataset in ['mnist', 'svhn', 'cifar-10', 'cifar-100'] <br/>
-`-m`: model in ['ce', 'forward', 'backward', 'boot_hard', 'boot_soft', 'd2l'] <br/>
-`-e`: epoch, `-b`: batch size, `-r`: noise rate in [0, 100] <br/> 
+## How To Run
+##### Configs for the experiment settings
+Check '*.yaml' file in the config folder for each experiment.
 
+##### Arguments
+* noise_rate: noise rate
+* asym: use if it is asymmetric noise, default is symmetric
+* config_path: path to the configs folder
+* version: the config file name
+* exp_name: name of the experiments (as note)
+* seed: random seed
 
-### 2. Run with pre-set parameters in main function of train_model.py:
-```python
-    # mnist example
-    args = parser.parse_args(['-d', 'mnist', '-m', 'd2l',
-                              '-e', '50', '-b', '128',
-                              '-r', '40'])
-    main(args)
-    
-    # svhn example
-    args = parser.parse_args(['-d', 'svhn', '-m', 'd2l',
-                              '-e', '50', '-b', '128',
-                              '-r', '40'])
-    main(args)
-    
-    # cifar-10 example
-    args = parser.parse_args(['-d', 'cifar-10', '-m', 'd2l',
-                              '-e', '120', '-b', '128',
-                              '-r', '40'])
-    main(args)
-    
-    # cifar-100 example
-    args = parser.parse_args(['-d', 'cifar-100', '-m', 'd2l',
-                              '-e', '200', '-b', '128',
-                              '-r', '40'])
-    main(args)
+Example for 0.4 Symmetric noise rate with NCE+RCE loss
+```console
+# CIFAR-10
+$  python3  main.py --exp_name      test_exp            \
+                    --noise_rate    0.4                 \
+                    --version       nce+rce             \
+                    --config_path   configs/cifar10/sym \
+                    --seed          123                
+                    
+
+# CIFAR-100
+$  python3  main.py --exp_name      test_exp             \
+                    --noise_rate    0.4                  \
+                    --version       nce+rce              \
+                    --config_path   configs/cifar100/sym \
+                    --seed          123
+```
+Example for ploting lid_trend_through_training of 0.4 Symmetric noise rate with D2L Learning
+```console
+# CIFAR-10
+$  python3  main.py --exp_name      test_exp            \
+                    --noise_rate    0.4                 \
+                    --version       d2l             \
+                    --config_path   configs/cifar10/sym \
+                    --seed          123                 \
+                    --plot
+
+Example for ploting The LID、Accuracy、CSR trend of different learning models throughout of 0.4 Symmetric noise rate
+```console
+# CIFAR-10
+$  python3  main.py --exp_name      test_exp            \
+                    --noise_rate    0.4                 \
+                    --config_path   configs/cifar10/sym \
+                    --seed          123                 \
+                    --plotall
+
+## Citing this work
+If you use this code in your work, please cite the accompanying paper:
+
+```
+@inproceedings{ma2020normalized,
+  title={Normalized Loss Functions for Deep Learning with Noisy Labels},
+  author={Ma, Xingjun and Huang, Hanxun and Wang, Yisen and Romano, Simone and Erfani, Sarah and Bailey, James},
+  booktitle={ICML},
+  year={2020}
+}
 ```
 
-#### Requirements:
-tensorflow, Keras, numpy, scipy, sklearn, matplotlib
